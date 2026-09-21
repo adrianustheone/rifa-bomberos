@@ -1,0 +1,123 @@
+// Scaffold multi-tenant — bono/rifa anual bomberos voluntarios (AR)
+// Provider: SQLite para desarrollo local. En producción migrar a Postgres.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Cuartel / asociación titular (tenant)
+model Tenant {
+  id     String @id @default(cuid())
+  name   String
+  slug   String @unique
+  /// CUIT de la asociación (opcional en scaffold)
+  cuit   String?
+  /// activo | suspendido | borrador
+  status String @default("activo")
+
+  // --- Mercado Pago Marketplace (placeholders; NUNCA secretos reales) ---
+  /// ID de vendedor MP del cuartel (placeholder)
+  mpSellerId      String? @map("mp_seller_id")
+  /// Fee de plataforma (ej. 0.06 = 6%). Stub numérico.
+  marketplaceFee  Float?  @map("marketplace_fee")
+  /// pendiente | ok | expirada
+  linkStatus      String  @default("pendiente") @map("link_status")
+  /// Stub: no almacenar access tokens reales en este scaffold
+  mpAccessTokenStub  String? @map("mp_access_token_stub")
+  mpRefreshTokenStub String? @map("mp_refresh_token_stub")
+  mpTokenExpiresAt   DateTime? @map("mp_token_expires_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  campaigns    Campaign[]
+  participants Participant[]
+
+  @@map("tenants")
+}
+
+/// Campaña anual / período de bono
+model Campaign {
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  /// Año calendario (ej. 2026)
+  year     Int
+  /// Etiqueta de período (ej. "Bono Anual 2026", "1er semestre")
+  period   String
+  /// Premio gordo / orden de compra (texto libre en scaffold)
+  premio   String?
+  /// borrador | activa | cerrada
+  status   String @default("borrador")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  participants Participant[]
+  cuotas       Cuota[]
+
+  @@index([tenantId])
+  @@unique([tenantId, year, period])
+  @@map("campaigns")
+}
+
+/// Abonado / comprador del bono
+model Participant {
+  id         String @id @default(cuid())
+  tenantId   String @map("tenant_id")
+  campaignId String @map("campaign_id")
+
+  fullName String  @map("full_name")
+  email    String?
+  phone    String?
+  dni      String?
+  address  String?
+
+  /// EXACTO: pendiente | al_dia | mora | baja
+  status String @default("pendiente")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  cuotas   Cuota[]
+
+  @@index([tenantId])
+  @@index([campaignId])
+  @@index([tenantId, status])
+  @@map("participants")
+}
+
+/// Cuota mensual del bono
+model Cuota {
+  id            String @id @default(cuid())
+  participantId String @map("participant_id")
+  campaignId    String @map("campaign_id")
+
+  /// Período legible (ej. "2026-03")
+  period String
+  /// Mes 1–12
+  month  Int
+  amount Float
+
+  /// abierta | pagada | vencida
+  paymentStatus String @default("abierta") @map("payment_status")
+  paidAt        DateTime? @map("paid_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([participantId])
+  @@index([campaignId])
+  @@unique([participantId, period])
+  @@map("cuotas")
+}
